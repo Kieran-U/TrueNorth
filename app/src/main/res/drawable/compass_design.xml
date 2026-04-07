@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+android:width="24dp"
+android:height="24dp"
+android:viewportWidth="24"
+android:viewportHeight="24">
+
+<!-- Outer circle -->
+<path
+    android:fillColor="#333333"
+    android:pathData="M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2ZM12,4A8,8 0 1,1 4,12A8,8 0 0,1 12,4Z" />
+
+<!-- Cardinal points -->
+<path
+    android:fillColor="@android:color/transparent"
+    android:strokeColor="#666666"
+    android:strokeWidth="1"
+    android:pathData="M12,4L12,6 M12,18L12,20 M4,12L6,12 M18,12L20,12" />
+
+<!-- Tick marks every 30 degrees -->
+<path
+    android:fillColor="@android:color/transparent"
+    android:strokeColor="#555555"
+    android:strokeWidth="0.5"
+    android:pathData="M12,5L12,7 M17,7L16,8 M19,12L17,12 M17,17L16,16 M12,19L12,17 M7,17L8,16 M5,12L7,12 M7,7L8,8" />
+
+</vector>
