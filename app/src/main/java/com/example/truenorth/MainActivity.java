@@ -156,12 +156,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 Address address = addresses.get(0);
                 final double lat = address.getLatitude();
                 final double lng = address.getLongitude();
-                String name = address.getFeatureName();
+                String name = address.getAddressLine(0);
                 if (name == null || name.isEmpty()) {
-                    name = address.getAddressLine(0);
-                    if (name == null || name.isEmpty()) {
-                        name = query;
-                    }
+                    name = query;
                 }
 
                 final String finalName = name;
