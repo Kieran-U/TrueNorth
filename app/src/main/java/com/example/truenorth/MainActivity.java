@@ -16,6 +16,18 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
+import com.google.android.libraries.places.api.Places;
+import com.google.android.libraries.places.api.model.AutocompletePrediction;
+import com.google.android.libraries.places.api.model.Place;
+import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest;
+import com.google.android.libraries.places.api.net.FetchPlaceRequest;
+import com.google.android.libraries.places.api.net.PlacesClient;
+import java.util.ArrayList;
+import java.util.Arrays;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.core.app.ActivityCompat;
@@ -33,7 +45,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private static final String TAG = "TrueNorth";
 
-    private SearchView searchView;
+    private android.widget.AutoCompleteTextView searchView;
     private ImageView compassArrow;
     private TextView distanceText;
     private TextView locationNameText;
@@ -52,6 +64,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private final float[] orientationAngles = new float[3];
 
     private static final int LOCATION_PERMISSION_CODE = 101;
+    private PlacesClient placesClient;
+    private ArrayAdapter<String> suggestionsAdapter;
+    private final List<String> suggestionTexts = new ArrayList<>();
+    private final List<AutocompletePrediction> currentPredictions = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,6 +109,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void initializeServices() {
         try {
+            if (!Places.isInitialized()) {
+                Places.initialize(getApplicationContext(), "YOUR_API_KEY_HERE");
+            }
+            placesClient = Places.createClient(this);
+        } catch (Exception e) {
+            Log.e(TAG, "Places init error: " + e.getMessage());
+        }
+        try {
             sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -114,23 +138,123 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void setupSearchView() {
         if (searchView == null) {
-            Log.e(TAG, "SearchView is null");
+            Log.e(TAG, "Search field is null");
             return;
         }
 
-        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+        suggestionsAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_dropdown_item_1line,
+                suggestionTexts
+        );
+        searchView.setAdapter(suggestionsAdapter);
+
+        searchView.addTextChangedListener(new TextWatcher() {
             @Override
-            public boolean onQueryTextSubmit(String query) {
-                searchView.clearFocus();
-                performSearch(query);
-                return true;
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String query = s.toString().trim();
+                if (query.length() >= 1) {
+                    fetchSuggestions(query);
+                }
             }
 
             @Override
-            public boolean onQueryTextChange(String newText) {
-                return false;
-            }
+            public void afterTextChanged(Editable s) {}
         });
+
+        searchView.setOnItemClickListener((parent, view, position, id) -> {
+            if (position < 0 || position >= currentPredictions.size()) return;
+
+            AutocompletePrediction prediction = currentPredictions.get(position);
+            String selectedText = prediction.getFullText(null).toString();
+
+            searchView.setText(selectedText);
+            searchView.setSelection(selectedText.length());
+
+            fetchPlaceAndNavigate(prediction.getPlaceId(), selectedText);
+        });
+
+        searchView.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                performSearch(searchView.getText().toString());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void fetchSuggestions(String query) {
+        if (placesClient == null) return;
+
+        FindAutocompletePredictionsRequest request =
+                FindAutocompletePredictionsRequest.builder()
+                        .setQuery(query)
+                        .build();
+
+        placesClient.findAutocompletePredictions(request)
+                .addOnSuccessListener(response -> {
+                    suggestionTexts.clear();
+                    currentPredictions.clear();
+
+                    for (AutocompletePrediction prediction : response.getAutocompletePredictions()) {
+                        currentPredictions.add(prediction);
+                        suggestionTexts.add(prediction.getFullText(null).toString());
+                    }
+
+                    suggestionsAdapter.notifyDataSetChanged();
+                    if (!suggestionTexts.isEmpty()) {
+                        searchView.showDropDown();
+                    }
+                })
+                .addOnFailureListener(e ->
+                        Log.e(TAG, "Autocomplete error: " + e.getMessage()));
+    }
+
+    private void fetchPlaceAndNavigate(String placeId, String fallbackName) {
+        if (placesClient == null) return;
+
+        List<Place.Field> placeFields = Arrays.asList(
+                Place.Field.ID,
+                Place.Field.NAME,
+                Place.Field.LAT_LNG,
+                Place.Field.ADDRESS
+        );
+
+        FetchPlaceRequest request = FetchPlaceRequest.newInstance(placeId, placeFields);
+
+        placesClient.fetchPlace(request)
+                .addOnSuccessListener(response -> {
+                    Place place = response.getPlace();
+
+                    if (place.getLatLng() == null) {
+                        showError("Could not get coordinates for selected place");
+                        return;
+                    }
+
+                    double lat = place.getLatLng().latitude;
+                    double lng = place.getLatLng().longitude;
+
+                    targetLocation = new Location("");
+                    targetLocation.setLatitude(lat);
+                    targetLocation.setLongitude(lng);
+
+                    String displayName = place.getAddress() != null
+                            ? place.getAddress()
+                            : (place.getName() != null ? place.getName() : fallbackName);
+
+                    if (locationNameText != null) locationNameText.setText(displayName);
+                    if (coordinatesText != null) {
+                        coordinatesText.setText(String.format(Locale.getDefault(), "%.4f, %.4f", lat, lng));
+                    }
+
+                    updateCompassAndDistance();
+                    Toast.makeText(MainActivity.this, "Navigating to " + displayName, Toast.LENGTH_SHORT).show();
+                })
+                .addOnFailureListener(e ->
+                        showError("Place details failed: " + e.getMessage()));
     }
 
     private void performSearch(final String query) {

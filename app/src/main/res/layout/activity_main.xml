@@ -123,13 +123,14 @@
             app:cardCornerRadius="30dp"
             app:cardElevation="8dp">
 
-            <androidx.appcompat.widget.SearchView
+            <AutoCompleteTextView
                 android:id="@+id/search_view"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:iconifiedByDefault="false"
-                android:queryHint="Enter location (e.g., Eiffel Tower)"
+                android:hint="Enter location"
                 android:background="@android:color/white"
+                android:completionThreshold="1"
+                android:iconifiedByDefault="false"
                 app:queryBackground="@android:color/transparent" />
 
         </com.google.android.material.card.MaterialCardView>
