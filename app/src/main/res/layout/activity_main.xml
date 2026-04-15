@@ -127,7 +127,7 @@
                 android:id="@+id/search_view"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:hint="Enter location (e.g., Eiffel Tower)"
+                android:hint="Enter location"
                 android:imeOptions="actionSearch"
                 android:inputType="text"
                 android:completionThreshold="1"
@@ -135,7 +135,7 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:dropDownHeight="300dp"
-                android:dropDownAnchor="@id/search_view" />
+                android:dropDownVerticalOffset="10dp" />
 
         </com.google.android.material.card.MaterialCardView>
 
