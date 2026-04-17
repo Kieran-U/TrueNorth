@@ -17,7 +17,7 @@ android:viewportHeight="24">
     android:strokeWidth="1"
     android:pathData="M12,4L12,6 M12,18L12,20 M4,12L6,12 M18,12L20,12" />
 
-<!-- Tick marks every 30 degrees -->
+<!-- Tick marks -->
 <path
     android:fillColor="@android:color/transparent"
     android:strokeColor="#555555"
