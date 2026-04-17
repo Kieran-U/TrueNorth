@@ -15,6 +15,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ADD THIS - BuildConfig field for API key
+        buildConfigField("String", "PLACES_API_KEY", "\"${getApiKey()}\"")
     }
 
     buildTypes {
@@ -30,7 +33,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-        isCoreLibraryDesugaringEnabled = true  // CRITICAL FIX
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -53,4 +56,17 @@ dependencies {
 
     // CRITICAL FIX - Enables java.time.Duration on older Android versions
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+}
+
+fun getApiKey(): String {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.exists()) {
+        val lines = propertiesFile.readLines()
+        for (line in lines) {
+            if (line.startsWith("PLACES_API_KEY=")) {
+                return line.substringAfter("=").trim()
+            }
+        }
+    }
+    return "DEFAULT_API_KEY"
 }

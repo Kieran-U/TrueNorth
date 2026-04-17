@@ -2,6 +2,7 @@ package com.example.truenorth;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -41,6 +42,7 @@ import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRe
 import com.google.android.libraries.places.api.net.FetchPlaceRequest;
 import com.google.android.libraries.places.api.net.PlacesClient;
 import com.example.truenorth.BuildConfig;
+import android.view.View;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -48,7 +50,6 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
-    private static final String TAG = "TrueNorth";
     private static final boolean USE_GOOGLE_PLACES = true;
     private static final int LOCATION_PERMISSION_CODE = 101;
 
@@ -57,7 +58,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private TextView distanceText;
     private TextView locationNameText;
     private TextView coordinatesText;
-    private TextView bearingText;
 
     private FusedLocationProviderClient fusedLocationClient;
     private SensorManager sensorManager;
@@ -70,13 +70,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private final float[] orientationAngles = new float[3];
 
     private PlacesClient placesClient;
-    private final List<String> suggestionTexts = new ArrayList<>();
     private final List<String> currentPlaceIds = new ArrayList<>();
     private boolean isGooglePlacesAvailable = false;
 
     private PopupWindow suggestionPopup;
-    private ListView suggestionListView;
-    private boolean isSearchBarActive = false;
     private boolean suppressPopup = false;
 
     @Override
@@ -89,7 +86,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         distanceText = findViewById(R.id.distance_text);
         locationNameText = findViewById(R.id.location_name);
         coordinatesText = findViewById(R.id.coordinates_text);
-        bearingText = findViewById(R.id.bearing_text);
 
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
@@ -121,22 +117,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
 
         setupSearchView();
+        setupKeyboardVisibilityListener();
         requestLocationPermission();
-
-        Toast.makeText(this, "Using " + (USE_GOOGLE_PLACES ? "Google Places" : "Geocoder"), Toast.LENGTH_SHORT).show();
     }
 
     private void setupSearchView() {
-        searchView.setThreshold(1);
-
         searchView.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus && !suppressPopup) {
-                isSearchBarActive = true;
                 String query = searchView.getText().toString().trim();
-                fetchAutocompleteSuggestions(query.length() >= 2 ? query : "a");
+                if (query.length() >= 2) {
+                    fetchAutocompleteSuggestions(query);
+                }
             } else if (!hasFocus) {
-                isSearchBarActive = false;
-                if (suggestionPopup != null && suggestionPopup.isShowing()) {
+                // Only dismiss popup if it's not from an item selection
+                if (!suppressPopup && suggestionPopup != null && suggestionPopup.isShowing()) {
                     suggestionPopup.dismiss();
                 }
             }
@@ -148,7 +142,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (isSearchBarActive && !suppressPopup) {
+                if (searchView.hasFocus() && !suppressPopup) {
                     String query = s.toString().trim();
                     if (query.length() >= 2) {
                         fetchAutocompleteSuggestions(query);
@@ -172,12 +166,27 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
     }
 
+    private void setupKeyboardVisibilityListener() {
+        final View rootView = findViewById(android.R.id.content);
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            Rect rect = new Rect();
+            rootView.getWindowVisibleDisplayFrame(rect);
+            int screenHeight = rootView.getRootView().getHeight();
+            int keypadHeight = screenHeight - rect.bottom;
+
+            if (keypadHeight < screenHeight * 0.15) {
+                if (suggestionPopup != null && suggestionPopup.isShowing()) {
+                    suggestionPopup.dismiss();
+                }
+            }
+        });
+    }
+
     private void deactivateSearchBar() {
-        isSearchBarActive = false;
         searchView.clearFocus();
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (imm != null && getCurrentFocus() != null) {
-            imm.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(searchView.getWindowToken(), 0);
         }
         if (suggestionPopup != null && suggestionPopup.isShowing()) {
             suggestionPopup.dismiss();
@@ -187,21 +196,27 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void fetchAutocompleteSuggestions(String query) {
         if (USE_GOOGLE_PLACES && isGooglePlacesAvailable && placesClient != null) {
             FindAutocompletePredictionsRequest request = FindAutocompletePredictionsRequest.builder()
-                    .setQuery(query).build();
+                    .setQuery(query)
+                    .build();
 
             placesClient.findAutocompletePredictions(request)
                     .addOnSuccessListener(response -> {
                         List<String> suggestions = new ArrayList<>();
                         currentPlaceIds.clear();
                         for (AutocompletePrediction prediction : response.getAutocompletePredictions()) {
-                            suggestions.add(prediction.getFullText(null).toString());
+                            // Show the primary text (name) instead of full text
+                            suggestions.add(prediction.getPrimaryText(null).toString());
                             currentPlaceIds.add(prediction.getPlaceId());
                         }
-                        if (!suggestions.isEmpty() && isSearchBarActive && !suppressPopup) {
+                        if (!suggestions.isEmpty() && searchView.hasFocus() && !suppressPopup) {
                             showPopup(suggestions);
+                        } else if (suggestions.isEmpty() && searchView.hasFocus()) {
+                            fetchGeocoderSuggestions(query);
                         }
                     })
-                    .addOnFailureListener(e -> fetchGeocoderSuggestions(query));
+                    .addOnFailureListener(e -> {
+                        fetchGeocoderSuggestions(query);
+                    });
         } else {
             fetchGeocoderSuggestions(query);
         }
@@ -221,7 +236,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 }
                 final List<String> finalSuggestions = suggestions;
                 runOnUiThread(() -> {
-                    if (!finalSuggestions.isEmpty() && isSearchBarActive && !suppressPopup) {
+                    if (!finalSuggestions.isEmpty() && searchView.hasFocus() && !suppressPopup) {
                         showPopup(finalSuggestions);
                     }
                 });
@@ -230,40 +245,39 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private void showPopup(List<String> suggestions) {
-        if (suggestions.isEmpty() || !isSearchBarActive || suppressPopup) return;
-        if (suggestionPopup != null && suggestionPopup.isShowing()) suggestionPopup.dismiss();
+        if (suggestions.isEmpty() || !searchView.hasFocus() || suppressPopup) return;
 
-        suggestionListView = new ListView(this);
+        if (suggestionPopup != null && suggestionPopup.isShowing()) {
+            suggestionPopup.dismiss();
+        }
+
+        ListView suggestionListView = new ListView(this);
         suggestionListView.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, suggestions));
         suggestionListView.setBackgroundColor(getResources().getColor(android.R.color.white));
-        suggestionListView.setFocusable(false);
 
         int height = Math.min(400, (int)(suggestions.size() * 60 * getResources().getDisplayMetrics().density));
-        suggestionPopup = new PopupWindow(suggestionListView, searchView.getWidth(), height, false);
-        suggestionPopup.setBackgroundDrawable(getResources().getDrawable(android.R.drawable.editbox_dropdown_dark_frame));
+        suggestionPopup = new PopupWindow(suggestionListView, searchView.getWidth(), height, false); // Changed to false
         suggestionPopup.setOutsideTouchable(true);
-        suggestionPopup.setFocusable(false);
-
-        int[] location = new int[2];
-        searchView.getLocationOnScreen(location);
-        suggestionPopup.showAtLocation(searchView, android.view.Gravity.NO_GRAVITY, location[0], location[1] - height);
+        suggestionPopup.setFocusable(false); // Add this - prevents popup from stealing focus
 
         suggestionListView.setOnItemClickListener((parent, view, position, id) -> {
             String selected = suggestions.get(position);
             searchView.setText(selected);
-            searchView.setSelection(selected.length());
-            deactivateSearchBar();
             suppressPopup = true;
 
             if (USE_GOOGLE_PLACES && isGooglePlacesAvailable && placesClient != null
                     && !currentPlaceIds.isEmpty() && position < currentPlaceIds.size()) {
+                // Pass the selected text as fallback in case place details fail
                 fetchPlaceDetails(currentPlaceIds.get(position), selected);
             } else {
                 performSearch(selected);
             }
 
-            new Handler().postDelayed(() -> suppressPopup = false, 1000);
+            deactivateSearchBar();
+            new Handler().postDelayed(() -> suppressPopup = false, 500);
         });
+
+        suggestionPopup.showAsDropDown(searchView, 0, 0);
     }
 
     private void fetchPlaceDetails(String placeId, String fallback) {
@@ -272,6 +286,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             return;
         }
 
+        // Request both name and address
         FetchPlaceRequest request = FetchPlaceRequest.newInstance(placeId,
                 Arrays.asList(Place.Field.ID, Place.Field.NAME, Place.Field.LAT_LNG, Place.Field.ADDRESS));
 
@@ -279,8 +294,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 .addOnSuccessListener(response -> {
                     Place place = response.getPlace();
                     if (place.getLatLng() != null) {
-                        setTargetLocation(place.getLatLng().latitude, place.getLatLng().longitude,
-                                place.getAddress() != null ? place.getAddress() : place.getName());
+                        // Use ADDRESS for the top display (not the name)
+                        String displayAddress = place.getAddress();
+                        if (TextUtils.isEmpty(displayAddress)) {
+                            displayAddress = place.getName();
+                        }
+                        if (TextUtils.isEmpty(displayAddress)) {
+                            displayAddress = fallback;
+                        }
+                        setTargetLocation(place.getLatLng().latitude, place.getLatLng().longitude, displayAddress);
                     } else {
                         performSearch(fallback);
                     }
@@ -372,7 +394,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 targetLocation.getLatitude(), targetLocation.getLongitude());
 
         compassArrow.setRotation((bearing - currentHeading + 360) % 360);
-        bearingText.setText(String.format("%.0f°", bearing));
     }
 
     private float calculateBearing(double startLat, double startLon, double endLat, double endLon) {
